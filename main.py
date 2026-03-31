@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# CORS (important)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,26 +14,31 @@ app.add_middleware(
 
 class Request(BaseModel):
     sequence: str
+    pam: str = "NGG"
 
 
-# 🔥 OFF-TARGET SIMULATION
+# OFF-TARGET
 def count_similar(seq, guide):
     count = 0
-
     for i in range(len(seq) - len(guide)):
         window = seq[i:i+len(guide)]
-
         mismatch = sum(1 for a, b in zip(window, guide) if a != b)
-
         if mismatch <= 2:
             count += 1
-
     return count
+
+
+def match_pam(seq, pam):
+    for a, b in zip(seq, pam):
+        if b != "N" and a != b:
+            return False
+    return True
 
 
 @app.post("/api/analyze")
 def analyze(req: Request):
     seq = req.sequence.upper()
+    pam_type = req.pam.upper()
 
     if len(seq) < 23:
         return {"error": "Sequence too short"}
@@ -42,15 +46,35 @@ def analyze(req: Request):
     results = []
 
     for i in range(len(seq) - 22):
-        guide = seq[i:i+23]
-        spacer = guide[:20]
-        pam = guide[-3:]
 
-        # PAM check
-        if pam[1:] != "GG":
-            continue
+        window = seq[i:i+23]
 
-        gc = (spacer.count("G") + spacer.count("C")) / 20 * 100
+        # CASE 1: NGG (PAM at end)
+        if pam_type == "NGG":
+            spacer = window[:20]
+            pam = window[-3:]
+
+            if not match_pam(pam, pam_type):
+                continue
+
+        # CASE 2: TTTV (PAM at start)
+        elif pam_type == "TTTV":
+            pam = window[:4]
+            spacer = window[4:24]
+
+            if not match_pam(pam, pam_type):
+                continue
+
+        # CUSTOM PAM (assume end)
+        else:
+            pam_len = len(pam_type)
+            spacer = window[:20]
+            pam = window[-pam_len:]
+
+            if not match_pam(pam, pam_type):
+                continue
+
+        gc = (spacer.count("G") + spacer.count("C")) / len(spacer) * 100
 
         score = 0
 
@@ -65,7 +89,6 @@ def analyze(req: Request):
         if "TTTT" in spacer:
             score -= 10
 
-        # 🔥 OFF-TARGET
         similar = count_similar(seq, spacer)
 
         if similar <= 1:
@@ -76,7 +99,7 @@ def analyze(req: Request):
             risk = "HIGH"
 
         results.append({
-            "sequence": guide,
+            "sequence": window,
             "score": score,
             "position": i,
             "gc": round(gc, 2),
@@ -85,7 +108,6 @@ def analyze(req: Request):
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
 
-    # BEST SAFE GUIDE
     best = None
     for r in results:
         if r["risk"] == "SAFE" and 40 <= r["gc"] <= 60:
