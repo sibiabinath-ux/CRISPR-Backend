@@ -4,32 +4,63 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# ✅ CORS FIX (VERY IMPORTANT)
+# ✅ CORS (REQUIRED)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all requests (Netlify → Render)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Request model
 class Request(BaseModel):
     sequence: str
 
-# API endpoint
 @app.post("/api/analyze")
 def analyze(req: Request):
     seq = req.sequence.upper()
 
-    # Basic validation
     if len(seq) < 23:
-        return {
-            "message": "Sequence too short",
-            "length": len(seq)
-        }
+        return {"error": "Sequence too short"}
+
+    results = []
+
+    for i in range(len(seq) - 22):
+        guide = seq[i:i+23]
+        spacer = guide[:20]
+        pam = guide[-3:]
+
+        # PAM check (NGG)
+        if pam[1:] != "GG":
+            continue
+
+        gc = (spacer.count("G") + spacer.count("C")) / 20 * 100
+
+        score = 0
+
+        # GC scoring
+        if 40 <= gc <= 60:
+            score += 20
+        else:
+            score -= 10
+
+        # Position rules
+        if spacer[-1] == "G":
+            score += 10
+
+        if "TTTT" in spacer:
+            score -= 10
+
+        results.append({
+            "sequence": guide,
+            "score": score,
+            "position": i,
+            "gc": round(gc, 2)
+        })
+
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
 
     return {
-        "message": "Backend working ✅",
-        "length": len(seq)
+        "count": len(results),
+        "top": results[:10]
     }
