@@ -17,17 +17,6 @@ class Request(BaseModel):
     pam: str = "NGG"
 
 
-# OFF-TARGET
-def count_similar(seq, guide):
-    count = 0
-    for i in range(len(seq) - len(guide)):
-        window = seq[i:i+len(guide)]
-        mismatch = sum(1 for a, b in zip(window, guide) if a != b)
-        if mismatch <= 2:
-            count += 1
-    return count
-
-
 def match_pam(seq, pam):
     for a, b in zip(seq, pam):
         if b != "N" and a != b:
@@ -44,37 +33,29 @@ def analyze(req: Request):
         return {"error": "Sequence too short"}
 
     results = []
+    n = len(seq)
 
-    for i in range(len(seq) - 22):
+    for i in range(n - 23):
 
         window = seq[i:i+23]
 
-        # CASE 1: NGG (PAM at end)
         if pam_type == "NGG":
             spacer = window[:20]
             pam = window[-3:]
 
-            if not match_pam(pam, pam_type):
-                continue
-
-        # CASE 2: TTTV (PAM at start)
         elif pam_type == "TTTV":
             pam = window[:4]
             spacer = window[4:24]
 
-            if not match_pam(pam, pam_type):
-                continue
-
-        # CUSTOM PAM (assume end)
         else:
             pam_len = len(pam_type)
             spacer = window[:20]
             pam = window[-pam_len:]
 
-            if not match_pam(pam, pam_type):
-                continue
+        if not match_pam(pam, pam_type):
+            continue
 
-        gc = (spacer.count("G") + spacer.count("C")) / len(spacer) * 100
+        gc = (spacer.count("G") + spacer.count("C")) * 5
 
         score = 0
 
@@ -89,28 +70,26 @@ def analyze(req: Request):
         if "TTTT" in spacer:
             score -= 10
 
-        similar = count_similar(seq, spacer)
-
-        if similar <= 1:
-            risk = "SAFE"
-        elif similar <= 3:
+        if gc < 40:
+            risk = "HIGH"
+        elif gc > 65:
             risk = "MEDIUM"
         else:
-            risk = "HIGH"
+            risk = "SAFE"
 
         results.append({
             "sequence": window,
             "score": score,
             "position": i,
-            "gc": round(gc, 2),
+            "gc": gc,
             "risk": risk
         })
 
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x["score"], reverse=True)
 
     best = None
     for r in results:
-        if r["risk"] == "SAFE" and 40 <= r["gc"] <= 60:
+        if r["risk"] == "SAFE":
             best = r
             break
 
