@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# ✅ CORS (REQUIRED)
+# ✅ CORS (allow frontend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,10 +44,11 @@ def analyze(req: Request):
         else:
             score -= 10
 
-        # Position rules
+        # Position rule
         if spacer[-1] == "G":
             score += 10
 
+        # Poly-T penalty
         if "TTTT" in spacer:
             score -= 10
 
@@ -60,7 +61,15 @@ def analyze(req: Request):
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
 
+    # ⭐ Best SAFE gRNA
+    best = None
+    for r in results:
+        if 40 <= r["gc"] <= 60:
+            best = r
+            break
+
     return {
         "count": len(results),
-        "top": results[:10]
+        "top": results[:10],
+        "best": best
     }
