@@ -17,6 +17,12 @@ class Request(BaseModel):
     pam: str = "NGG"
 
 
+# 🔁 Reverse complement
+def reverse_complement(seq):
+    complement = {"A":"T","T":"A","C":"G","G":"C"}
+    return "".join(complement.get(b, b) for b in reversed(seq))
+
+
 def match_pam(seq, pam):
     for a, b in zip(seq, pam):
         if b != "N" and a != b:
@@ -24,13 +30,7 @@ def match_pam(seq, pam):
     return True
 
 
-@app.post("/api/analyze")
-def analyze(req: Request):
-    seq = req.sequence.upper()
-    pam_type = req.pam.upper()
-
-    if len(seq) < 23:
-        return {"error": "Sequence too short"}
+def scan_sequence(seq, pam_type, strand_label):
 
     results = []
     n = len(seq)
@@ -82,8 +82,30 @@ def analyze(req: Request):
             "score": score,
             "position": i,
             "gc": gc,
-            "risk": risk
+            "risk": risk,
+            "strand": strand_label
         })
+
+    return results
+
+
+@app.post("/api/analyze")
+def analyze(req: Request):
+
+    seq = req.sequence.upper()
+    pam_type = req.pam.upper()
+
+    if len(seq) < 23:
+        return {"error": "Sequence too short"}
+
+    # Forward
+    forward_results = scan_sequence(seq, pam_type, "+")
+
+    # Reverse
+    rev_seq = reverse_complement(seq)
+    reverse_results = scan_sequence(rev_seq, pam_type, "-")
+
+    results = forward_results + reverse_results
 
     results.sort(key=lambda x: x["score"], reverse=True)
 
@@ -99,5 +121,6 @@ def analyze(req: Request):
     return {
         "count": len(results),
         "top": results[:10],
-        "best": best
+        "best": best,
+        "all": results
     }
